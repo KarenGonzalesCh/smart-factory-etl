@@ -2,13 +2,27 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import gspread
+import os
+import json
+from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
 
 # 1. Configurar la API de Google Drive y autenticación
-gc = gspread.service_account(
-    filename='/content/drive/MyDrive/INFORME PRODUCCIÓN/Planillas/proyecto-prueba-429201-10470bb8bb00.json'
-)
 
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+if "GOOGLE_CREDENTIALS_JSON" in os.environ:
+  # Carga las credenciales directamente desde el texto secreto en GitHub
+  creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS_JSON"])
+  creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+else:
+  # Carga local desde tu archivo de credenciales de siempre
+  creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+
+client = gspread.authorize(creds)
 # 2. Enlaces oficiales de las Hojas de Google Sheets
 url_app_iny = 'https://docs.google.com/spreadsheets/d/1k0KyYQzkPanwmkI7Sx4GUHwdzR9IeXcduUudGCqv8Ks/edit?gid=80104312#gid=80104312'
 url_ren_disp = 'https://docs.google.com/spreadsheets/d/1MJ28yOstYa2XMzEuuI96F7ezi5myjTzxrb1fYAGPiZg/edit?gid=0#gid=0'

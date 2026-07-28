@@ -26,14 +26,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas numpy gspread gspread-dataframe
 
-      - name: Configurar credenciales de Google Service Account
+      - name: Ejecutar script ETL
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-        run: |
-          # Recrea la ruta exacta que busca tu script en el servidor virtual de GitHub
-          mkdir -p "/content/drive/MyDrive/INFORME PRODUCCIÓN/Planillas/"
-          echo "$GOOGLE_CREDENTIALS_JSON" > "/content/drive/MyDrive/INFORME PRODUCCIÓN/Planillas/proyecto-prueba-429201-10470bb8bb00.json"
-
-      - name: Ejecutar script ETL
         run: |
           python etl_produccion_oee.py
