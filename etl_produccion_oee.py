@@ -133,6 +133,7 @@ def procesar_lot_con_id(df_lot):
     return df_lot_agrupado
 
 
+
 def procesar_fal_con_id(df_fal):
     df = df_fal.copy()
     for col in df.select_dtypes(include='object').columns:
@@ -140,19 +141,24 @@ def procesar_fal_con_id(df_fal):
 
     df['Fecha_dt'] = pd.to_datetime(
         df['Inicio'],
-        format='%d/%m/%Y',
+        format='mixed',
+        dayfirst=True,
         errors='coerce'
     ).dt.date
 
     df['ID'] = (
         df['Fecha_dt'].astype(str).str.strip() + '_' +
-        df['Nombre Maquina'].astype(str).str.strip() + '_' +
-        df['Receta'].astype(str).str.strip()
+        df['Nombre Maquina'].astype(str).str.upper().str.strip().str.replace(' ', '', regex=False) + '_' +
+        df['Receta'].astype(str).str.upper().str.strip().str.replace(' ', '', regex=False)
     )
 
     col_segundos = next((c for c in df.columns if 'segundo' in c.lower() or 'cantidad' in c.lower()), 'Cantidad de Segundos')
     df[col_segundos] = pd.to_numeric(df[col_segundos], errors='coerce').fillna(0)
 
+    # =========================================================================
+    # 🛑 FILTRO: Ignorar registros donde la cantidad de segundos sea >= FILTRO_7_HORAS
+    # =========================================================================
+    df = df[df[col_segundos] < FILTRO_7_HORAS].copy()
     if 'Descripcion Mensaje' in df.columns:
         df_dummies = pd.get_dummies(df['Descripcion Mensaje'], prefix='parada')
         df = pd.concat([df, df_dummies], axis=1)
@@ -472,9 +478,9 @@ fechas_esperadas = dias_habiles_previos.date
 
 print(f"📅 Rango dinámico seleccionado (Hora ARG: {hora_argentina.strftime('%H:%M')} hs): {[str(d) for d in fechas_esperadas]}\n")
 
-tablas_ac_b = {}
+tablas_ac_b_h_ext = {}
 # Orden estricto que se respetará sí o sí
-maqs_ac_b = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11']
+maqs_ac_b_h_ext = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
 
 print("🚀 Procesando máquinas AC y B desde df_lot_fal_agrupado en orden estricto...\n")
 
@@ -501,7 +507,7 @@ if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and le
     nombres_columnas = [f"{pd.to_datetime(d).day}/{pd.to_datetime(d).month:02d} ({dias_semana.get(pd.to_datetime(d).dayofweek, '')})" for d in idx_fijo_date]
 
     # Recorrer estrictamente la lista en el orden indicado
-    for maquina in maqs_ac_b:
+    for maquina in maqs_ac_b_h_ext:
         df_maq = df_trabajo[df_trabajo['Maquina'].astype(str).str.strip() == maquina].copy()
 
         print(f"==================================================")
@@ -598,7 +604,7 @@ if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and le
                             lambda x: f"{int(round(pd.to_numeric(x, errors='coerce')))}" if pd.notna(x) and pd.notna(pd.to_numeric(x, errors='coerce')) else "-"
                         )
 
-        tablas_ac_b[maquina] = df_final
+        tablas_ac_b_h_ext[maquina] = df_final
 
         try:
             from IPython.display import display
@@ -782,8 +788,10 @@ sheet_su = gc.open_by_key(spreadsheet_id)
 # Mapeo de diccionarios con sus respectivas hojas de destino
 diccionarios_hojas = {
     "INYECCION": tablas_inyectoras if 'tablas_inyectoras' in globals() else {},
-    "B": {k: v for k, v in tablas_ac_b.items() if k.startswith('B')} if 'tablas_ac_b' in globals() else {},
-    "AC": {k: v for k, v in tablas_ac_b.items() if k.startswith('AC')} if 'tablas_ac_b' in globals() else {}
+    "B": {k: v for k, v in tablas_ac_b_h_ext.items() if k.startswith('B')} if 'tablas_ac_b_h_ext' in globals() else {},
+    "AC": {k: v for k, v in tablas_ac_b_h_ext.items() if k.startswith('AC')} if 'tablas_ac_b_h_ext' in globals() else {}
+    "H1": {k: v for k, v in tablas_ac_b_h_ext.items() if k == 'H1'} if 'tablas_ac_b_h_ext' in globals() else {},
+    "Extrusora": {k: v for k, v in tablas_ac_b_h_ext.items() if k == 'Extrusora'} if 'tablas_ac_b_h_ext' in globals() else {}
 }
 
 # Procesar cada hoja de manera independiente
