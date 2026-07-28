@@ -2,11 +2,9 @@ name: Smart Factory ETL Pipeline
 
 on:
   schedule:
-    # 17:00 ART (Hora Argentina) -> 20:00 UTC
     - cron: '0 20 * * *'
-
     - cron: '0 3 * * *'
-  workflow_dispatch: # Permite lanzarlo manualmente con un botón desde GitHub
+  workflow_dispatch:
 
 jobs:
   run-etl:
