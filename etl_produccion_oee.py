@@ -310,6 +310,45 @@ df_app_iny['ID_Inyeccion'] = (
     df_app_iny['PIEZA'].astype(str).str.strip().str.replace(' ', '', regex=False)
 )
 
+# ==========================================
+# 1. LIMPIEZA PREVIA Y CONVERSIÓN NUMÉRICA
+# ==========================================
+df_app_iny['FECHA'] = pd.to_datetime(df_app_iny['FECHA'], errors='coerce', dayfirst=True).dt.strftime('%Y-%m-%d')
+
+cols_a_sumar = [
+    'CANT. NO CONFORMES', 
+    'CANT. DE GOLPES INYECCIÓN', 
+    'CANT. BOCAS', 
+    'CANT. SUB DIARIA', 
+    'CANT SUB DIARIA REAL'
+]
+
+for col in cols_a_sumar:
+    if col in df_app_iny.columns:
+        df_app_iny[col] = pd.to_numeric(df_app_iny[col], errors='coerce').fillna(0)
+
+# ==========================================
+# 2. AGRUPAMIENTO SEGURO SIN DICCIONARIO
+# ==========================================
+columnas_suma_existentes = [c for c in cols_a_sumar if c in df_app_iny.columns]
+columnas_first_existentes = [c for c in df_app_iny.columns if c != 'ID_Inyeccion' and c not in columnas_suma_existentes and c != 'ID OPERARIO']
+
+df_parte_first = df_app_iny.groupby('ID_Inyeccion')[columnas_first_existentes].first()
+df_parte_suma = df_app_iny.groupby('ID_Inyeccion')[columnas_suma_existentes].sum()
+
+df_agrupado_base = pd.concat([df_parte_first, df_parte_suma], axis=1)
+
+if 'ID OPERARIO' in df_app_iny.columns:
+    df_operarios = df_app_iny.groupby('ID_Inyeccion')['ID OPERARIO'].apply(lambda x: list(x.unique()))
+    df_agrupado_base['ID OPERARIO'] = df_operarios
+
+df_app_iny = df_agrupado_base.reset_index()
+
+print(f"¡Agrupación exitosa y blindada! Ahora df_app_iny tiene {len(df_app_iny)} filas únicas.")
+
+# ==========================================
+# 3. MERGE DE df_app_iny Y df_lot_fal_agrupado USANDO ID_Inyeccion
+# ==========================================
 cols_a_traer = [c for c in df_lot_fal_agrupado.columns if c != 'Fecha']
 if 'ID_Inyeccion' not in cols_a_traer:
     cols_a_traer.append('ID_Inyeccion')
@@ -320,6 +359,9 @@ df_app_iny_unificado = df_app_iny.merge(
     how='left',
     suffixes=('', '_lot')
 )
+
+print(f"¡Merge completado con éxito! El DataFrame resultante 'df_app_iny_unificado' tiene {len(df_app_iny_unificado)} filas y {len(df_app_iny_unificado.columns)} columnas.")
+
 
 # ==========================================
 # PROCESAMIENTO MÁQUINAS AC, B, H1, Extrusora
@@ -593,3 +635,164 @@ for nombre_hoja_unica, tablas_dict in diccionarios_hojas.items():
         except Exception as e:
             print(f"❌ Error al procesar '{maquina}' en la hoja '{nombre_hoja_unica}': {e}")
             time.sleep(3)
+
+
+
+# ==========================================
+# EXPORTACIÓN A RESUMEN SEMANAL (Lunes a Viernes)
+# ==========================================
+
+# 1. Calcular los últimos 5 días hábiles hacia atrás (excluyendo sábados y domingos) desde la fecha tope
+dias_habiles_ultimos = pd.bdate_range(end=fecha_tope, periods=5)
+dias_semana_full = dias_habiles_ultimos.date
+
+# 2. Ordenar cronológicamente de lunes a viernes
+dias_semana_full = sorted(dias_semana_full)
+
+dias_labels = {0: 'L', 1: 'M', 2: 'X', 3: 'J', 4: 'V'}
+nombres_cols_semana = [f"{d.day}/{d.month:02d} ({dias_labels.get(d.weekday(), '')})" for d in dias_semana_full]
+idx_semana_date = [pd.to_datetime(d).date() for d in dias_semana_full]
+
+# Unir todos los diccionarios de máquinas procesadas
+todas_las_tablas = {}
+if 'tablas_inyectoras' in globals():
+    todas_las_tablas.update(tablas_inyectoras)
+if 'tablas_ac_b_h_ext' in globals():
+    todas_las_tablas.update(tablas_ac_b_h_ext)
+
+maquinas_orden_completo = ['INY 2', 'INY 3', 'INY 4', 'INY 5', 'B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
+
+# 🛑 RECONSTRUCCIÓN BLINDADA DE LA FUENTE TOTAL (Sin usar pd.concat directo para evitar herencia de índices)
+lista_frames = []
+
+if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and not df_app_iny_unificado.empty:
+    df_clean_iny = pd.DataFrame(df_app_iny_unificado.to_dict())
+    lista_frames.append(df_clean_iny)
+
+if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and not df_lot_fal_agrupado.empty:
+    df_clean_lot = pd.DataFrame(df_lot_fal_agrupado.to_dict())
+    lista_frames.append(df_clean_lot)
+
+if lista_frames:
+    df_fuente_total = pd.concat(lista_frames, ignore_index=True, sort=False)
+    # Limpieza absoluta final de columnas duplicadas si las hubiera
+    df_fuente_total = df_fuente_total.loc[:, ~df_fuente_total.columns.duplicated()]
+else:
+    df_fuente_total = pd.DataFrame()
+
+if not df_fuente_total.empty:
+    if 'Fecha' in df_fuente_total.columns:
+        df_fuente_total['FECHA'] = pd.to_datetime(df_fuente_total['Fecha'], format='mixed', dayfirst=True, errors='coerce')
+    elif 'FECHA' in df_fuente_total.columns:
+        df_fuente_total['FECHA'] = pd.to_datetime(df_fuente_total['FECHA'], format='mixed', dayfirst=True, errors='coerce')
+
+    # Columnas numéricas necesarias
+    for col in ['Cantidad Real', 'CANT. SUB DIARIA', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL']:
+        if col in df_fuente_total.columns:
+            df_fuente_total[col] = pd.to_numeric(df_fuente_total[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+
+    for maquina in maquinas_orden_completo:
+        df_maq = df_fuente_total[df_fuente_total['Maquina'].astype(str).str.strip() == maquina].copy()
+        
+        # Estructura vacía por defecto para las 9 métricas y los 5 días
+        metricas_indices = [
+            'OEE', 'Disponibilidad', 'Calidad', 'Rendimiento',
+            'CANT. NO CONFORMES', 'CANT. REAL', 'Tiempo Neto [h]', 'Tiempo de parada [h]', 'Tiempo restante [h]'
+        ]
+
+        df_maq_resumen = pd.DataFrame('-', index=metricas_indices, columns=nombres_cols_semana)
+
+        if not df_maq.empty:
+            df_maq['FECHA_DT'] = pd.to_datetime(df_maq['FECHA'], errors='coerce').dt.date
+            df_maq = df_maq.dropna(subset=['FECHA_DT'])
+
+            if not df_maq.empty:
+                # Agrupamiento diario
+                agg_s = {
+                    'Cantidad Real': 'sum', 
+                    'CANT. SUB DIARIA': 'sum', 
+                    'Tiempo Neto': 'sum', 
+                    'Tiempo de Proceso': 'sum', 
+                    'Tiempo Parada': 'sum', 
+                    'GPH': 'mean', 
+                    'MUL': 'mean'
+                }
+                agg_s_clean = {k: v for k, v in agg_s.items() if k in df_maq.columns}
+                
+                # Agrupamos por FECHA_DT sumando/promediando
+                df_diario = df_maq.groupby('FECHA_DT').agg(agg_s_clean)
+                
+                # Solución para unificar índices duplicados de fecha si los hubiera
+                df_diario = df_diario.groupby(df_diario.index).agg({
+                    col: ('mean' if col in ['GPH', 'MUL'] else 'sum') for col in df_diario.columns
+                })
+
+                df_diario.index = pd.to_datetime(df_diario.index).date
+
+                # Recorremos los 5 días de la semana y extraemos la fila de forma segura si existe
+                for i, d_date in enumerate(idx_semana_date):
+                    col_name = nombres_cols_semana[i]
+                    
+                    if d_date in df_diario.index:
+                        row_data = df_diario.loc[d_date]
+                    else:
+                        row_data = None
+
+                    if row_data is not None and pd.notna(row_data.get('Tiempo Neto', np.nan)) and row_data.get('Tiempo Neto', 0) > 0:
+                        t_neto = row_data.get('Tiempo Neto', 0)
+                        t_proc = row_data.get('Tiempo Proceso', 0)
+                        t_parada = row_data.get('Tiempo Parada', 0)
+                        
+                        cant_real = row_data.get('CANT. SUB DIARIA', 0) if maquina.startswith('INY') else row_data.get('Cantidad Real', 0)
+                        gph = row_data.get('GPH', 0)
+                        mul = row_data.get('MUL', 0)
+
+                        t_neto_h = t_neto / 3600.0
+                        t_parada_h = (t_parada / 3600.0) if t_parada > 24 else t_parada
+                        t_restante_h = 9 - t_neto_h - t_parada_h
+
+                        disp = (t_neto / t_proc) if t_proc > 0 else 0
+                        rend = (((cant_real / mul) / t_neto_h) / gph) if (gph > 0 and mul > 0 and t_neto_h > 0) else 0
+                        cal = 1.0
+                        oee = disp * rend * cal
+
+                        df_maq_resumen.loc['OEE', col_name] = f"{oee * 100:.2f}%"
+                        df_maq_resumen.loc['Disponibilidad', col_name] = f"{disp * 100:.2f}%"
+                        df_maq_resumen.loc['Calidad', col_name] = f"{cal * 100:.2f}%"
+                        df_maq_resumen.loc['Rendimiento', col_name] = f"{rend * 100:.2f}%"
+                        df_maq_resumen.loc['CANT. NO CONFORMES', col_name] = "0"
+                        df_maq_resumen.loc['CANT. REAL', col_name] = f"{int(round(cant_real))}"
+                        df_maq_resumen.loc['Tiempo Neto [h]', col_name] = f"{t_neto_h:.2f}"
+                        df_maq_resumen.loc['Tiempo de parada [h]', col_name] = f"{t_parada_h:.2f}"
+                        df_maq_resumen.loc['Tiempo restante [h]', col_name] = f"{t_restante_h:.2f}"
+
+        todas_las_tablas[maquina] = df_maq_resumen
+
+# Subir a la hoja "Resumen Semanal"
+try:
+    worksheet_resumen = sheet_su.worksheet('Resumen Semanal')
+    worksheet_resumen.clear()
+    time.sleep(1.5)
+except gspread.exceptions.WorksheetNotFound:
+    worksheet_resumen = sheet_su.add_worksheet(title='Resumen Semanal', rows="200", cols="20")
+    time.sleep(1.5)
+
+fila_actual = 1
+for maquina, df_final in todas_las_tablas.items():
+    try:
+        titulo_maquina = [[f"--- {maquina} ---"]]
+        worksheet_resumen.update(values=titulo_maquina, range_name=f"A{fila_actual}")
+        fila_actual += 1
+
+        df_para_subir = df_final.reset_index()
+        df_para_subir.columns.values[0] = "Métrica"
+        datos_a_escribir = [df_para_subir.columns.values.tolist()] + df_para_subir.values.tolist()
+
+        worksheet_resumen.update(values=datos_a_escribir, range_name=f"A{fila_actual}")
+        fila_actual += len(datos_a_escribir) + 2
+        time.sleep(1.5)
+    except Exception as e:
+        print(f"❌ Error al procesar resumen para '{maquina}': {e}")
+        time.sleep(3)
+
+print("✅ ¡Pestaña 'Resumen Semanal' generada y actualizada con éxito!")
