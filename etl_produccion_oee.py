@@ -641,158 +641,156 @@ for nombre_hoja_unica, tablas_dict in diccionarios_hojas.items():
 # ==========================================
 # EXPORTACIÓN A RESUMEN SEMANAL (Lunes a Viernes)
 # ==========================================
-
-# 1. Calcular los últimos 5 días hábiles hacia atrás (excluyendo sábados y domingos) desde la fecha tope
-dias_habiles_ultimos = pd.bdate_range(end=fecha_tope, periods=5)
-dias_semana_full = dias_habiles_ultimos.date
-
-# 2. Ordenar cronológicamente de lunes a viernes
-dias_semana_full = sorted(dias_semana_full)
-
+# ==============================================================================
+# 0. CONFIGURACIÓN DE PARÁMETROS Y FECHAS
+# ==============================================================================
+dias_habiles_semana = pd.bdate_range(end=fecha_tope, periods=5)
+idx_semana_date = [d.date() for d in dias_habiles_semana]
 dias_labels = {0: 'L', 1: 'M', 2: 'X', 3: 'J', 4: 'V'}
-nombres_cols_semana = [f"{d.day}/{d.month:02d} ({dias_labels.get(d.weekday(), '')})" for d in dias_semana_full]
-idx_semana_date = [pd.to_datetime(d).date() for d in dias_semana_full]
+nombres_cols_semana = [f"{d.day}/{d.month:02d} ({dias_labels.get(d.weekday(), '')})" for d in idx_semana_date]
 
-# Unir todos los diccionarios de máquinas procesadas
+maquinas_inyectoras = ['INY 2', 'INY 3', 'INY 4', 'INY 5']
+maquinas_otras = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
+maquinas_orden_completo = maquinas_inyectoras + maquinas_otras
+
+# ==============================================================================
+# 1. FUNCIÓN DE CÁLCULO UNIFICADA
+# ==============================================================================
+def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
+    if df_maq.empty:
+        return pd.DataFrame()
+
+    # 🛑 BLINDAJE DE TIPOS DE DATOS ANTES DE AGREGAR
+    cols_a_convertir = ['Cantidad Real', 'CANT. SUB DIARIA', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL']
+    for col in cols_a_convertir:
+        if col in df_maq.columns:
+            df_maq[col] = pd.to_numeric(df_maq[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+
+    agg_dict = {'Cantidad Real': 'sum', 'CANT. SUB DIARIA': 'sum', 'Tiempo Neto': 'sum',
+                'Tiempo de Proceso': 'sum', 'Tiempo Parada': 'sum', 'GPH': 'mean', 'MUL': 'mean'}
+    agg_dict_clean = {k: v for k, v in agg_dict.items() if k in df_maq.columns}
+
+    df_diario = df_maq.groupby(df_maq['FECHA'].dt.date).agg(agg_dict_clean)
+    df_diario.index = pd.to_datetime(df_diario.index).date
+
+    df_res = df_diario.reindex(fechas_idx).copy()
+
+    # Cálculos base
+    df_res['Tiempo Neto [h]'] = df_res['Tiempo Neto'] / 3600
+    df_res['Tiempo de parada [h]'] = np.where(df_res['Tiempo Parada'] > 24, df_res['Tiempo Parada'] / 3600, df_res['Tiempo Parada'])
+    df_res['Tiempo restante [h]'] = (9 - df_res['Tiempo Neto [h]'] - df_res['Tiempo de parada [h]'])
+
+    # Diferenciación lógica
+    df_res['CANT. REAL'] = df_res['CANT. SUB DIARIA'] if maquina in maquinas_inyectoras else df_res['Cantidad Real']
+
+    # Métricas
+    df_res['Disponibilidad'] = np.where(df_res['Tiempo de Proceso'] > 0, df_res['Tiempo Neto'] / df_res['Tiempo de Proceso'], 0) * 100
+    df_res['Rendimiento'] = np.where((df_res['GPH'] > 0) & (df_res['MUL'] > 0) & (df_res['Tiempo Neto'] > 0),
+                                     ((df_res['CANT. REAL'] / df_res['MUL']) / (df_res['Tiempo Neto'] / 3600)) / df_res['GPH'] * 100, 0)
+    df_res['OEE'] = (df_res['Disponibilidad'] / 100 * df_res['Rendimiento'] / 100) * 100
+    df_res['Calidad'] = 100.0
+
+    return df_res
+
+# ==============================================================================
+# 2. PROCESAMIENTO CENTRALIZADO (CORREGIDO POR ORIGEN Y NOMBRE DE COLUMNA)
+# ==============================================
 todas_las_tablas = {}
-if 'tablas_inyectoras' in globals():
-    todas_las_tablas.update(tablas_inyectoras)
-if 'tablas_ac_b_h_ext' in globals():
-    todas_las_tablas.update(tablas_ac_b_h_ext)
 
-maquinas_orden_completo = ['INY 2', 'INY 3', 'INY 4', 'INY 5', 'B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
+# Función auxiliar para normalizar nombres de columnas
+def normalizar_df(df):
+    if df.empty: return df
+    df = df.copy()
+    # Estandarizar nombre de fecha
+    if 'Fecha' in df.columns:
+        df = df.rename(columns={'Fecha': 'FECHA'})
+    elif 'Fecha Inicio' in df.columns:
+        df = df.rename(columns={'Fecha Inicio': 'FECHA'})
+    return df
 
-# 🛑 RECONSTRUCCIÓN BLINDADA DE LA FUENTE TOTAL (Sin usar pd.concat directo para evitar herencia de índices)
-lista_frames = []
+# Preparamos las fuentes limpias
+df_iny_clean = normalizar_df(df_app_iny_unificado.loc[:, ~df_app_iny_unificado.columns.duplicated()]) if 'df_app_iny_unificado' in globals() else pd.DataFrame()
+df_lot_clean = normalizar_df(df_lot_fal_agrupado.loc[:, ~df_lot_fal_agrupado.columns.duplicated()]) if 'df_lot_fal_agrupado' in globals() else pd.DataFrame()
 
-if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and not df_app_iny_unificado.empty:
-    df_clean_iny = pd.DataFrame(df_app_iny_unificado.to_dict())
-    lista_frames.append(df_clean_iny)
+# Convertir a dict para evitar problemas de índice
+if not df_iny_clean.empty: df_iny_clean = pd.DataFrame(df_iny_clean.to_dict('list'))
+if not df_lot_clean.empty: df_lot_clean = pd.DataFrame(df_lot_clean.to_dict('list'))
 
-if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and not df_lot_fal_agrupado.empty:
-    df_clean_lot = pd.DataFrame(df_lot_fal_agrupado.to_dict())
-    lista_frames.append(df_clean_lot)
+for maquina in maquinas_orden_completo:
+    # SELECCIÓN DE FUENTE
+    if maquina in maquinas_inyectoras:
+        df_maq = df_iny_clean[df_iny_clean['Maquina'].astype(str).str.strip() == maquina].copy()
+    else:
+        df_maq = df_lot_clean[df_lot_clean['Maquina'].astype(str).str.strip() == maquina].copy()
 
-if lista_frames:
-    df_fuente_total = pd.concat(lista_frames, ignore_index=True, sort=False)
-    # Limpieza absoluta final de columnas duplicadas si las hubiera
-    df_fuente_total = df_fuente_total.loc[:, ~df_fuente_total.columns.duplicated()]
-else:
-    df_fuente_total = pd.DataFrame()
+    # Asegurar formato fecha en la fuente seleccionada
+    if not df_maq.empty and 'FECHA' in df_maq.columns:
+        df_maq['FECHA'] = pd.to_datetime(df_maq['FECHA'], errors='coerce', format='mixed')
 
-if not df_fuente_total.empty:
-    if 'Fecha' in df_fuente_total.columns:
-        df_fuente_total['FECHA'] = pd.to_datetime(df_fuente_total['Fecha'], format='mixed', dayfirst=True, errors='coerce')
-    elif 'FECHA' in df_fuente_total.columns:
-        df_fuente_total['FECHA'] = pd.to_datetime(df_fuente_total['FECHA'], format='mixed', dayfirst=True, errors='coerce')
+    # Aplicar cálculo
+    df_calc = calcular_resumen_maquina(df_maq, maquina, idx_semana_date)
 
-    # Columnas numéricas necesarias
-    for col in ['Cantidad Real', 'CANT. SUB DIARIA', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL']:
-        if col in df_fuente_total.columns:
-            df_fuente_total[col] = pd.to_numeric(df_fuente_total[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+    # Formateo final (igual que antes)
+    df_final = pd.DataFrame('-', index=['OEE', 'Disponibilidad', 'Calidad', 'Rendimiento', 'CANT. NO CONFORMES',
+                                       'CANT. REAL', 'Tiempo Neto [h]', 'Tiempo de parada [h]', 'Tiempo restante [h]'],
+                            columns=nombres_cols_semana)
 
-    for maquina in maquinas_orden_completo:
-        df_maq = df_fuente_total[df_fuente_total['Maquina'].astype(str).str.strip() == maquina].copy()
-        
-        # Estructura vacía por defecto para las 9 métricas y los 5 días
-        metricas_indices = [
-            'OEE', 'Disponibilidad', 'Calidad', 'Rendimiento',
-            'CANT. NO CONFORMES', 'CANT. REAL', 'Tiempo Neto [h]', 'Tiempo de parada [h]', 'Tiempo restante [h]'
-        ]
+    if not df_calc.empty:
+        for col_date in nombres_cols_semana:
+            # Parseo de fecha para coincidir con el index del df_calc
+            fecha_col = pd.to_datetime(col_date.split(' (')[0] + f"/{datetime.now().year}", dayfirst=True).date()
+            if fecha_col in df_calc.index:
+                row = df_calc.loc[fecha_col]
+                # ... (Aquí va tu lógica de asignación a df_final que ya tienes funcionando)
+                df_final.loc['OEE', col_date] = f"{row['OEE']:.2f}%" if pd.notna(row['OEE']) else "-"
+                df_final.loc['Disponibilidad', col_date] = f"{row['Disponibilidad']:.2f}%" if pd.notna(row['Disponibilidad']) else "-"
+                df_final.loc['Calidad', col_date] = f"{row['Calidad']:.2f}%"
+                df_final.loc['Rendimiento', col_date] = f"{row['Rendimiento']:.2f}%" if pd.notna(row['Rendimiento']) else "-"
+                df_final.loc['CANT. NO CONFORMES', col_date] = "0"
+                df_final.loc['CANT. REAL', col_date] = f"{int(round(row['CANT. REAL']))}" if pd.notna(row['CANT. REAL']) else "-"
+                df_final.loc['Tiempo Neto [h]', col_date] = f"{row['Tiempo Neto [h]']:.2f}" if pd.notna(row['Tiempo Neto [h]']) else "-"
+                df_final.loc['Tiempo de parada [h]', col_date] = f"{row['Tiempo de parada [h]']:.2f}" if pd.notna(row['Tiempo de parada [h]']) else "-"
+                df_final.loc['Tiempo restante [h]', col_date] = f"{row['Tiempo restante [h]']:.2f}" if pd.notna(row['Tiempo restante [h]']) else "-"
 
-        df_maq_resumen = pd.DataFrame('-', index=metricas_indices, columns=nombres_cols_semana)
+    todas_las_tablas[maquina] = df_final
+# ==============================================================================
+# 3. EXPORTACIÓN
+# ==============================================
 
-        if not df_maq.empty:
-            df_maq['FECHA_DT'] = pd.to_datetime(df_maq['FECHA'], errors='coerce').dt.date
-            df_maq = df_maq.dropna(subset=['FECHA_DT'])
+spreadsheet_id = "1s2Kd8Sr0p_D76LPh1uJgIa9UAGro-UFZijK-_AOABTc"
+sheet_lunes = gc.open_by_key(spreadsheet_id)
 
-            if not df_maq.empty:
-                # Agrupamiento diario
-                agg_s = {
-                    'Cantidad Real': 'sum', 
-                    'CANT. SUB DIARIA': 'sum', 
-                    'Tiempo Neto': 'sum', 
-                    'Tiempo de Proceso': 'sum', 
-                    'Tiempo Parada': 'sum', 
-                    'GPH': 'mean', 
-                    'MUL': 'mean'
-                }
-                agg_s_clean = {k: v for k, v in agg_s.items() if k in df_maq.columns}
-                
-                # Agrupamos por FECHA_DT sumando/promediando
-                df_diario = df_maq.groupby('FECHA_DT').agg(agg_s_clean)
-                
-                # Solución para unificar índices duplicados de fecha si los hubiera
-                df_diario = df_diario.groupby(df_diario.index).agg({
-                    col: ('mean' if col in ['GPH', 'MUL'] else 'sum') for col in df_diario.columns
-                })
-
-                df_diario.index = pd.to_datetime(df_diario.index).date
-
-                # Recorremos los 5 días de la semana y extraemos la fila de forma segura si existe
-                for i, d_date in enumerate(idx_semana_date):
-                    col_name = nombres_cols_semana[i]
-                    
-                    if d_date in df_diario.index:
-                        row_data = df_diario.loc[d_date]
-                    else:
-                        row_data = None
-
-                    if row_data is not None and pd.notna(row_data.get('Tiempo Neto', np.nan)) and row_data.get('Tiempo Neto', 0) > 0:
-                        t_neto = row_data.get('Tiempo Neto', 0)
-                        t_proc = row_data.get('Tiempo Proceso', 0)
-                        t_parada = row_data.get('Tiempo Parada', 0)
-                        
-                        cant_real = row_data.get('CANT. SUB DIARIA', 0) if maquina.startswith('INY') else row_data.get('Cantidad Real', 0)
-                        gph = row_data.get('GPH', 0)
-                        mul = row_data.get('MUL', 0)
-
-                        t_neto_h = t_neto / 3600.0
-                        t_parada_h = (t_parada / 3600.0) if t_parada > 24 else t_parada
-                        t_restante_h = 9 - t_neto_h - t_parada_h
-
-                        disp = (t_neto / t_proc) if t_proc > 0 else 0
-                        rend = (((cant_real / mul) / t_neto_h) / gph) if (gph > 0 and mul > 0 and t_neto_h > 0) else 0
-                        cal = 1.0
-                        oee = disp * rend * cal
-
-                        df_maq_resumen.loc['OEE', col_name] = f"{oee * 100:.2f}%"
-                        df_maq_resumen.loc['Disponibilidad', col_name] = f"{disp * 100:.2f}%"
-                        df_maq_resumen.loc['Calidad', col_name] = f"{cal * 100:.2f}%"
-                        df_maq_resumen.loc['Rendimiento', col_name] = f"{rend * 100:.2f}%"
-                        df_maq_resumen.loc['CANT. NO CONFORMES', col_name] = "0"
-                        df_maq_resumen.loc['CANT. REAL', col_name] = f"{int(round(cant_real))}"
-                        df_maq_resumen.loc['Tiempo Neto [h]', col_name] = f"{t_neto_h:.2f}"
-                        df_maq_resumen.loc['Tiempo de parada [h]', col_name] = f"{t_parada_h:.2f}"
-                        df_maq_resumen.loc['Tiempo restante [h]', col_name] = f"{t_restante_h:.2f}"
-
-        todas_las_tablas[maquina] = df_maq_resumen
-
-# Subir a la hoja "Resumen Semanal"
 try:
-    worksheet_resumen = sheet_su.worksheet('Resumen Semanal')
-    worksheet_resumen.clear()
-    time.sleep(1.5)
+    worksheet_resumen = sheet_lunes.worksheet('Resumen Semanal')
 except gspread.exceptions.WorksheetNotFound:
-    worksheet_resumen = sheet_su.add_worksheet(title='Resumen Semanal', rows="200", cols="20")
-    time.sleep(1.5)
+    worksheet_resumen = sheet_lunes.add_worksheet(title='Resumen Semanal', rows=300, cols=10)
+
+worksheet_resumen.clear()
+time.sleep(1)
 
 fila_actual = 1
 for maquina, df_final in todas_las_tablas.items():
     try:
-        titulo_maquina = [[f"--- {maquina} ---"]]
-        worksheet_resumen.update(values=titulo_maquina, range_name=f"A{fila_actual}")
+        # 1. Escribir título de la máquina
+        worksheet_resumen.update(range_name=f"A{fila_actual}", values=[[f"--- {maquina} ---"]])
         fila_actual += 1
-
+        
+        # 2. Preparar dataframe para subir
         df_para_subir = df_final.reset_index()
         df_para_subir.columns.values[0] = "Métrica"
+        
+        # Convertir todo a lista de listas asegurando formato plano
         datos_a_escribir = [df_para_subir.columns.values.tolist()] + df_para_subir.values.tolist()
-
-        worksheet_resumen.update(values=datos_a_escribir, range_name=f"A{fila_actual}")
+        
+        # 3. Escribir la tabla de la máquina
+        worksheet_resumen.update(range_name=f"A{fila_actual}", values=datos_a_escribir)
+        
+        # Actualizar la fila actual dejando espacio libre entre tablas (+2 filas)
         fila_actual += len(datos_a_escribir) + 2
         time.sleep(1.5)
+        
     except Exception as e:
-        print(f"❌ Error al procesar resumen para '{maquina}': {e}")
+        print(f"❌ Error al exportar la máquina {maquina} al Resumen Semanal: {e}")
         time.sleep(3)
 
 print("✅ ¡Pestaña 'Resumen Semanal' generada y actualizada con éxito!")
