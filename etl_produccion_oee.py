@@ -67,7 +67,7 @@ df_sensores_FAL = pd.DataFrame(ws_sensores_FAL[1:], columns=ws_sensores_FAL[0])
 df_estandares_nuevo = pd.DataFrame(ws_estandares_nuevo[1:], columns=ws_estandares_nuevo[0])
 
 # Constantes de tiempo
-TOPE_9_HORAS = 9 * 3600  # 32400 segundos
+TOPE_9_HORAS = 9 * 3600   # 32400 segundos
 MIN_2_HORAS = 0
 FILTRO_7_HORAS = 6.5 * 3600 # 23400 segundos
 
@@ -182,7 +182,7 @@ if col_segundos_fal:
         if col in df_lot_fal_agrupado.columns:
             df_lot_fal_agrupado[col] = df_lot_fal_agrupado[col].fillna(0)
 else:
-    df_lot_fal_agrupado = df_lot_agrupado.copy()
+    df_lot_fal_agrupado = df_lot_fal_agrupado.copy()
     df_lot_fal_agrupado['Tiempo Parada'] = 0
     for col in cols_paradas_fal:
         df_lot_fal_agrupado[col] = 0
@@ -543,8 +543,8 @@ if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and 
 
                 df_ultimos_2['Tiempo Neto [h]'] = df_ultimos_2['Tiempo Neto'] / 3600
                 df_ultimos_2['Tiempo de parada [h]'] = np.where(df_ultimos_2['Tiempo Parada'] > 24,
-                                                               df_ultimos_2['Tiempo Parada'] / 3600,
-                                                               df_ultimos_2['Tiempo Parada'])
+                                                           df_ultimos_2['Tiempo Parada'] / 3600,
+                                                           df_ultimos_2['Tiempo Parada'])
                 df_ultimos_2['Tiempo restante [h]'] = (9 - df_ultimos_2['Tiempo Neto [h]'] - df_ultimos_2['Tiempo de parada [h]'])
                 df_ultimos_2['CANT. REAL'] = df_ultimos_2['CANT. SUB DIARIA'] if 'CANT. SUB DIARIA' in df_ultimos_2.columns else 0
                 df_ultimos_2['CANT. NO CONFORMES'] = 0
@@ -593,7 +593,7 @@ if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and 
         tablas_inyectoras[maquina] = df_final
 
 # ==========================================
-# EXPORTACIÓN A GOOGLE SHEETS
+# EXPORTACIÓN A GOOGLE SHEETS (LIBRO DE 2 DÍAS)
 # ==========================================
 spreadsheet_id = "1qMbb87guSbqPx3fd0tojIfTYuPnuN-r4I2mq8crqL58"
 sheet_su = gc.open_by_key(spreadsheet_id)
@@ -637,13 +637,9 @@ for nombre_hoja_unica, tablas_dict in diccionarios_hojas.items():
             time.sleep(3)
 
 
-
 # ==========================================
-# EXPORTACIÓN A RESUMEN SEMANAL (Lunes a Viernes)
+# EXPORTACIÓN A RESUMEN SEMANAL (LIBRO DE 5 DÍAS)
 # ==========================================
-# ==============================================================================
-# 0. CONFIGURACIÓN DE PARÁMETROS Y FECHAS
-# ==============================================================================
 dias_habiles_semana = pd.bdate_range(end=fecha_tope, periods=5)
 idx_semana_date = [d.date() for d in dias_habiles_semana]
 dias_labels = {0: 'L', 1: 'M', 2: 'X', 3: 'J', 4: 'V'}
@@ -653,14 +649,10 @@ maquinas_inyectoras = ['INY 2', 'INY 3', 'INY 4', 'INY 5']
 maquinas_otras = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
 maquinas_orden_completo = maquinas_inyectoras + maquinas_otras
 
-# ==============================================================================
-# 1. FUNCIÓN DE CÁLCULO UNIFICADA
-# ==============================================================================
 def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
     if df_maq.empty:
         return pd.DataFrame()
 
-    # 🛑 BLINDAJE DE TIPOS DE DATOS ANTES DE AGREGAR
     cols_a_convertir = ['Cantidad Real', 'CANT. SUB DIARIA', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL']
     for col in cols_a_convertir:
         if col in df_maq.columns:
@@ -675,15 +667,12 @@ def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
 
     df_res = df_diario.reindex(fechas_idx).copy()
 
-    # Cálculos base
     df_res['Tiempo Neto [h]'] = df_res['Tiempo Neto'] / 3600
     df_res['Tiempo de parada [h]'] = np.where(df_res['Tiempo Parada'] > 24, df_res['Tiempo Parada'] / 3600, df_res['Tiempo Parada'])
     df_res['Tiempo restante [h]'] = (9 - df_res['Tiempo Neto [h]'] - df_res['Tiempo de parada [h]'])
 
-    # Diferenciación lógica
     df_res['CANT. REAL'] = df_res['CANT. SUB DIARIA'] if maquina in maquinas_inyectoras else df_res['Cantidad Real']
 
-    # Métricas
     df_res['Disponibilidad'] = np.where(df_res['Tiempo de Proceso'] > 0, df_res['Tiempo Neto'] / df_res['Tiempo de Proceso'], 0) * 100
     df_res['Rendimiento'] = np.where((df_res['GPH'] > 0) & (df_res['MUL'] > 0) & (df_res['Tiempo Neto'] > 0),
                                      ((df_res['CANT. REAL'] / df_res['MUL']) / (df_res['Tiempo Neto'] / 3600)) / df_res['GPH'] * 100, 0)
@@ -692,56 +681,43 @@ def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
 
     return df_res
 
-# ==============================================================================
-# 2. PROCESAMIENTO CENTRALIZADO (CORREGIDO POR ORIGEN Y NOMBRE DE COLUMNA)
-# ==============================================
 todas_las_tablas = {}
 
-# Función auxiliar para normalizar nombres de columnas
 def normalizar_df(df):
     if df.empty: return df
     df = df.copy()
-    # Estandarizar nombre de fecha
     if 'Fecha' in df.columns:
         df = df.rename(columns={'Fecha': 'FECHA'})
     elif 'Fecha Inicio' in df.columns:
         df = df.rename(columns={'Fecha Inicio': 'FECHA'})
     return df
 
-# Preparamos las fuentes limpias
 df_iny_clean = normalizar_df(df_app_iny_unificado.loc[:, ~df_app_iny_unificado.columns.duplicated()]) if 'df_app_iny_unificado' in globals() else pd.DataFrame()
 df_lot_clean = normalizar_df(df_lot_fal_agrupado.loc[:, ~df_lot_fal_agrupado.columns.duplicated()]) if 'df_lot_fal_agrupado' in globals() else pd.DataFrame()
 
-# Convertir a dict para evitar problemas de índice
 if not df_iny_clean.empty: df_iny_clean = pd.DataFrame(df_iny_clean.to_dict('list'))
 if not df_lot_clean.empty: df_lot_clean = pd.DataFrame(df_lot_clean.to_dict('list'))
 
 for maquina in maquinas_orden_completo:
-    # SELECCIÓN DE FUENTE
     if maquina in maquinas_inyectoras:
         df_maq = df_iny_clean[df_iny_clean['Maquina'].astype(str).str.strip() == maquina].copy()
     else:
         df_maq = df_lot_clean[df_lot_clean['Maquina'].astype(str).str.strip() == maquina].copy()
 
-    # Asegurar formato fecha en la fuente seleccionada
     if not df_maq.empty and 'FECHA' in df_maq.columns:
         df_maq['FECHA'] = pd.to_datetime(df_maq['FECHA'], errors='coerce', format='mixed')
 
-    # Aplicar cálculo
     df_calc = calcular_resumen_maquina(df_maq, maquina, idx_semana_date)
 
-    # Formateo final (igual que antes)
     df_final = pd.DataFrame('-', index=['OEE', 'Disponibilidad', 'Calidad', 'Rendimiento', 'CANT. NO CONFORMES',
                                        'CANT. REAL', 'Tiempo Neto [h]', 'Tiempo de parada [h]', 'Tiempo restante [h]'],
                             columns=nombres_cols_semana)
 
     if not df_calc.empty:
         for col_date in nombres_cols_semana:
-            # Parseo de fecha para coincidir con el index del df_calc
             fecha_col = pd.to_datetime(col_date.split(' (')[0] + f"/{datetime.now().year}", dayfirst=True).date()
             if fecha_col in df_calc.index:
                 row = df_calc.loc[fecha_col]
-                # ... (Aquí va tu lógica de asignación a df_final que ya tienes funcionando)
                 df_final.loc['OEE', col_date] = f"{row['OEE']:.2f}%" if pd.notna(row['OEE']) else "-"
                 df_final.loc['Disponibilidad', col_date] = f"{row['Disponibilidad']:.2f}%" if pd.notna(row['Disponibilidad']) else "-"
                 df_final.loc['Calidad', col_date] = f"{row['Calidad']:.2f}%"
@@ -753,17 +729,14 @@ for maquina in maquinas_orden_completo:
                 df_final.loc['Tiempo restante [h]', col_date] = f"{row['Tiempo restante [h]']:.2f}" if pd.notna(row['Tiempo restante [h]']) else "-"
 
     todas_las_tablas[maquina] = df_final
-# ==============================================================================
-# 3. EXPORTACIÓN
-# ==============================================
 
-spreadsheet_id = "1s2Kd8Sr0p_D76LPh1uJgIa9UAGro-UFZijK-_AOABTc"
-sheet_lunes = gc.open_by_key(spreadsheet_id)
+spreadsheet_id_5d = "1s2Kd8Sr0p_D76LPh1uJgIa9UAGro-UFZijK-_AOABTc"
+sheet_5d = gc.open_by_key(spreadsheet_id_5d)
 
 try:
-    worksheet_resumen = sheet_lunes.worksheet('Resumen Semanal')
+    worksheet_resumen = sheet_5d.worksheet('Resumen Semanal')
 except gspread.exceptions.WorksheetNotFound:
-    worksheet_resumen = sheet_lunes.add_worksheet(title='Resumen Semanal', rows=300, cols=10)
+    worksheet_resumen = sheet_5d.add_worksheet(title='Resumen Semanal', rows=300, cols=10)
 
 worksheet_resumen.clear()
 time.sleep(1)
@@ -771,26 +744,19 @@ time.sleep(1)
 fila_actual = 1
 for maquina, df_final in todas_las_tablas.items():
     try:
-        # 1. Escribir título de la máquina
         worksheet_resumen.update(range_name=f"A{fila_actual}", values=[[f"--- {maquina} ---"]])
         fila_actual += 1
         
-        # 2. Preparar dataframe para subir
         df_para_subir = df_final.reset_index()
         df_para_subir.columns.values[0] = "Métrica"
         
-        # Convertir todo a lista de listas asegurando formato plano
         datos_a_escribir = [df_para_subir.columns.values.tolist()] + df_para_subir.values.tolist()
-        
-        # 3. Escribir la tabla de la máquina
         worksheet_resumen.update(range_name=f"A{fila_actual}", values=datos_a_escribir)
         
-        # Actualizar la fila actual dejando espacio libre entre tablas (+2 filas)
         fila_actual += len(datos_a_escribir) + 2
         time.sleep(1.5)
-        
     except Exception as e:
-        print(f"❌ Error al exportar la máquina {maquina} al Resumen Semanal: {e}")
+        print(f"❌ Error al exportar la máquina {maquina} al Resumen Semanal (5 días): {e}")
         time.sleep(3)
 
-print("✅ ¡Pestaña 'Resumen Semanal' generada y actualizada con éxito!")
+print("✅ ¡Proceso completo! Ambos libros de Google Sheets se han actualizado correctamente.")
