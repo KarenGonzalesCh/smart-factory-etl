@@ -124,6 +124,17 @@ def procesar_fal_con_id(df_fal):
     for col in df.select_dtypes(include='object').columns:
         df[col] = df[col].astype(str).str.strip()
 
+    df['Inicio_dt'] = pd.to_datetime(
+        df['Inicio'],
+        format='mixed',
+        dayfirst=True,
+        errors='coerce'
+    )
+
+    df = df[df['Inicio_dt'].dt.hour < 17].copy()
+
+    df['Fecha_dt'] = df['Inicio_dt'].dt.date
+    
     df['Fecha_dt'] = pd.to_datetime(
         df['Inicio'],
         format='mixed',
