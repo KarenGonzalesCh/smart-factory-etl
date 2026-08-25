@@ -720,8 +720,8 @@ def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
     df_res['Disponibilidad'] = np.where(df_res['Tiempo de Proceso'] > 0, df_res['Tiempo Neto'] / df_res['Tiempo de Proceso'], 0) * 100
     df_res['Rendimiento'] = np.where((df_res['GPH'] > 0) & (df_res['MUL'] > 0) & (df_res['Tiempo Neto'] > 0),
                                      ((df_res['CANT. REAL'] / df_res['MUL']) / (df_res['Tiempo Neto'] / 3600)) / df_res['GPH'] * 100, 0)
-    df_res['Calidad'] = (
-         df_res['CANT. REAL'] > 0,
+    df_res['Calidad'] = np.where(
+        df_res['CANT. REAL'] > 0,
         (
             (df_res['CANT. REAL'] - df_res['CANT. NO CONFORMES'])
             / df_res['CANT. REAL']
