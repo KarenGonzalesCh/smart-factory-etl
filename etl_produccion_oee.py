@@ -433,8 +433,6 @@ if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and le
             else:
                 agg_dict = {
                     'Cantidad Real': 'sum',
-                    'CANT. SUB DIARIA': 'sum',
-                    'CANT. NO CONFORMES': 'sum',
                     'Tiempo Neto': 'sum',
                     'Tiempo de Proceso': 'sum',
                     'Tiempo Parada': 'sum',
