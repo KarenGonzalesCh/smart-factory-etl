@@ -433,12 +433,16 @@ if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and le
             else:
                 agg_dict = {
                     'Cantidad Real': 'sum',
+                    'CANT. SUB DIARIA': 'sum',
+                    'CANT. NO CONFORMES': 'sum',
                     'Tiempo Neto': 'sum',
                     'Tiempo de Proceso': 'sum',
                     'Tiempo Parada': 'sum',
                     'GPH': 'mean',
                     'MUL': 'mean'
                 }
+
+
                 df_diario = df_maq.groupby(df_maq['FECHA'].dt.date).agg(agg_dict)
                 df_diario.index = pd.to_datetime(df_diario.index).date
                 df_habil = df_diario[pd.to_datetime(df_diario.index).dayofweek < 5].copy()
@@ -465,6 +469,7 @@ if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and le
                     0
                 )
                 df_ultimos_2['Calidad'] = 1.0
+                    
                 df_ultimos_2['OEE'] = (df_ultimos_2['Disponibilidad'] * df_ultimos_2['Rendimiento'] * df_ultimos_2['Calidad'])
 
                 cols_finales = [
@@ -512,7 +517,7 @@ if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and 
     elif 'FECHA' in df_trabajo_iny.columns:
         df_trabajo_iny['FECHA'] = pd.to_datetime(df_trabajo_iny['FECHA'], format='mixed', dayfirst=True, errors='coerce')
 
-    cols_numericas_iny = ['Cantidad Real', 'CANT. SUB DIARIA', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL', 'DIV']
+    cols_numericas_iny = ['Cantidad Real', 'CANT. SUB DIARIA','CANT. NO CONFORMES', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL', 'DIV']
     for col in cols_numericas_iny:
         if col in df_trabajo_iny.columns:
             df_trabajo_iny[col] = pd.to_numeric(df_trabajo_iny[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
@@ -547,6 +552,9 @@ if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and 
                 if 'CANT. SUB DIARIA' in df_maq.columns:
                     agg_dict_iny['CANT. SUB DIARIA'] = 'sum'
 
+                if 'CANT. NO CONFORMES' in df_maq.columns:
+                    agg_dict_iny['CANT. NO CONFORMES'] = 'sum'
+                
                 df_diario = df_maq.groupby(df_maq['FECHA'].dt.date).agg(agg_dict_iny)
                 df_diario.index = pd.to_datetime(df_diario.index).date
                 df_habil = df_diario[pd.to_datetime(df_diario.index).dayofweek < 5].copy()
@@ -557,8 +565,18 @@ if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and 
                                                            df_ultimos_2['Tiempo Parada'] / 3600,
                                                            df_ultimos_2['Tiempo Parada'])
                 df_ultimos_2['Tiempo restante [h]'] = (9 - df_ultimos_2['Tiempo Neto [h]'] - df_ultimos_2['Tiempo de parada [h]'])
-                df_ultimos_2['CANT. REAL'] = df_ultimos_2['CANT. SUB DIARIA'] if 'CANT. SUB DIARIA' in df_ultimos_2.columns else 0
-                df_ultimos_2['CANT. NO CONFORMES'] = 0
+                df_ultimos_2['CANT. NO CONFORMES'] = (
+                    df_ultimos_2['CANT. NO CONFORMES'].fillna(0)
+                    if 'CANT. NO CONFORMES' in df_ultimos_2.columns
+                    else 0
+                )
+
+                df_ultimos_2['CANT. REAL'] = (
+                    df_ultimos_2['CANT. SUB DIARIA']
+                    if 'CANT. SUB DIARIA' in df_ultimos_2.columns
+                    else 0
+                )
+
 
                 df_ultimos_2['Rendimiento'] = np.where(
                     (df_ultimos_2['GPH'].notna()) & (df_ultimos_2['GPH'] > 0) &
@@ -572,7 +590,13 @@ if 'df_app_iny_unificado' in globals() and df_app_iny_unificado is not None and 
                     df_ultimos_2['Tiempo Neto'] / df_ultimos_2['Tiempo de Proceso'],
                     0
                 )
-                df_ultimos_2['Calidad'] = 1.0
+                df_ultimos_2['Calidad'] =np.where(
+                    df_ultimos_2['CANT. REAL'] > 0,
+                    (
+                        df_ultimos_2['CANT. REAL'] - df_ultimos_2['CANT. NO CONFORMES']
+                    )  / df_ultimos_2['CANT. REAL'],
+                    0
+                )
                 df_ultimos_2['OEE'] = (df_ultimos_2['Disponibilidad'] * df_ultimos_2['Rendimiento'] * df_ultimos_2['Calidad'])
 
                 cols_finales = [
@@ -664,12 +688,12 @@ def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
     if df_maq.empty:
         return pd.DataFrame()
 
-    cols_a_convertir = ['Cantidad Real', 'CANT. SUB DIARIA', 'Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL']
+    cols_a_convertir = ['Cantidad Real', 'CANT. SUB DIARIA', 'CANT. NO CONFORMES','Tiempo Neto', 'Tiempo de Proceso', 'Tiempo Parada', 'GPH', 'MUL']
     for col in cols_a_convertir:
         if col in df_maq.columns:
             df_maq[col] = pd.to_numeric(df_maq[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
 
-    agg_dict = {'Cantidad Real': 'sum', 'CANT. SUB DIARIA': 'sum', 'Tiempo Neto': 'sum',
+    agg_dict = {'Cantidad Real': 'sum', 'CANT. SUB DIARIA': 'sum', 'CANT. NO CONFORMES': 'sum','Tiempo Neto': 'sum',
                 'Tiempo de Proceso': 'sum', 'Tiempo Parada': 'sum', 'GPH': 'mean', 'MUL': 'mean'}
     agg_dict_clean = {k: v for k, v in agg_dict.items() if k in df_maq.columns}
 
@@ -684,11 +708,35 @@ def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
 
     df_res['CANT. REAL'] = df_res['CANT. SUB DIARIA'] if maquina in maquinas_inyectoras else df_res['Cantidad Real']
 
+    if maquina in maquinas_inyectoras:
+        df_res['CANT. NO CONFORMES'] = (
+            df_res['CANT. NO CONFORMES'].fillna(0)
+            if 'CANT. NO CONFORMES' in df_res.columns
+            else 0
+        )
+    else:
+         df_res['CANT. NO CONFORMES'] = 0
+
+
+    
     df_res['Disponibilidad'] = np.where(df_res['Tiempo de Proceso'] > 0, df_res['Tiempo Neto'] / df_res['Tiempo de Proceso'], 0) * 100
     df_res['Rendimiento'] = np.where((df_res['GPH'] > 0) & (df_res['MUL'] > 0) & (df_res['Tiempo Neto'] > 0),
                                      ((df_res['CANT. REAL'] / df_res['MUL']) / (df_res['Tiempo Neto'] / 3600)) / df_res['GPH'] * 100, 0)
-    df_res['OEE'] = (df_res['Disponibilidad'] / 100 * df_res['Rendimiento'] / 100) * 100
-    df_res['Calidad'] = 100.0
+    df_res['Calidad'] = (
+         df_res['CANT. REAL'] > 0,
+        (
+            (df_res['CANT. REAL'] - df_res['CANT. NO CONFORMES'])
+            / df_res['CANT. REAL']
+        ) * 100,
+        0
+    )
+
+    df_res['OEE'] = (
+        (df_res['Disponibilidad'] / 100)
+        * (df_res['Rendimiento'] / 100) 
+        * (df_res['Calidad'] / 100)
+    )* 100
+
 
     return df_res
 
@@ -733,7 +781,13 @@ for maquina in maquinas_orden_completo:
                 df_final.loc['Disponibilidad', col_date] = f"{row['Disponibilidad']:.2f}%" if pd.notna(row['Disponibilidad']) else "-"
                 df_final.loc['Calidad', col_date] = f"{row['Calidad']:.2f}%"
                 df_final.loc['Rendimiento', col_date] = f"{row['Rendimiento']:.2f}%" if pd.notna(row['Rendimiento']) else "-"
-                df_final.loc['CANT. NO CONFORMES', col_date] = "0"
+                df_final.loc['CANT. NO CONFORMES', col_date] = (
+                    f"{int(round(row['CANT. NO CONFORMES']))}"
+                    if pd.notna(row['CANT. NO CONFORMES'])
+                    else "-"
+                )
+                
+
                 df_final.loc['CANT. REAL', col_date] = f"{int(round(row['CANT. REAL']))}" if pd.notna(row['CANT. REAL']) else "-"
                 df_final.loc['Tiempo Neto [h]', col_date] = f"{row['Tiempo Neto [h]']:.2f}" if pd.notna(row['Tiempo Neto [h]']) else "-"
                 df_final.loc['Tiempo de parada [h]', col_date] = f"{row['Tiempo de parada [h]']:.2f}" if pd.notna(row['Tiempo de parada [h]']) else "-"
