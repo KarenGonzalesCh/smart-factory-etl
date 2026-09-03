@@ -8,6 +8,8 @@ from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
 from zoneinfo import ZoneInfo
 import time
+from tenacity import retry, stop_after_attempt, wait_exponential
+from gspread.exceptions import APIError
 
 # 1. Configurar la API y autenticación para GitHub Actions
 scope = [
@@ -36,6 +38,23 @@ url_sensores = 'https://docs.google.com/spreadsheets/d/1729eD8BMbEWreyR0j-d0X7ve
 url_sensores_FAL = 'https://docs.google.com/spreadsheets/d/1HywiwBs3LifJb5k2n9V1Uy-btFQ4mvB-cLKPmVormpI/edit?usp=sharing'
 url_estandares = 'https://docs.google.com/spreadsheets/d/1YPnahpGLbi7ETGoR8hRwE2SZsd_NR8zSeE4wti3_P18/edit?gid=1601508775#gid=1601508775'
 url_estandares_nuevo = 'https://docs.google.com/spreadsheets/d/1YPnahpGLbi7ETGoR8hRwE2SZsd_NR8zSeE4wti3_P18/edit?gid=1347610677#gid=1347610677'
+
+def is_retryable_error(exception):
+    if isinstance(exception, APIError):
+        return exception.response.status_code in [503, 504, 429]
+    return False
+
+@retry(
+    retry=retry_if_exception(is_retryable_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True
+)
+def abrir_worksheet_con_reintento(gc, url, nombre_hoja):
+    return gc.open_by_url(url).worksheet(nombre_hoja)
+
+
+
 
 # 3. Abrir las hojas de trabajo (Worksheets) principales
 wrks_app_iny = gc.open_by_url(url_app_iny).worksheet('Base_inyeccion')
