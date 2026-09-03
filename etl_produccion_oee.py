@@ -8,8 +8,8 @@ from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
 from zoneinfo import ZoneInfo
 import time
-from tenacity import retry, stop_after_attempt, wait_exponential
 from gspread.exceptions import APIError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 # 1. Configurar la API y autenticación para GitHub Actions
 scope = [
