@@ -21,11 +21,14 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy gspread gspread-dataframe
           pip install pandas numpy gspread gspread-dataframe tenacity
 
-      - name: Ejecutar script ETL
+      - name: Ejecutar script ETL con reintentos
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 35        # Ampliado a 35 min para dar margen a las esperas de 10 min
+          max_attempts: 3           # Intento inicial + 2 reintentos
+          retry_wait_seconds: 600   # 10 minutos de pausa exacta entre fallos
+          command: python etl_produccion_oee.py
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-        run: |
-          python etl_produccion_oee.py
