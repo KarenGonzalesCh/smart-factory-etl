@@ -2,7 +2,6 @@ name: Smart Factory ETL Pipeline
 
 on:
   schedule:
-    - cron: '0 20 * * *'
     - cron: '30 6 * * *'
   workflow_dispatch:
 
