@@ -409,7 +409,7 @@ dias_habiles_previos = pd.bdate_range(end=fecha_tope, periods=2)
 fechas_esperadas = dias_habiles_previos.date
 
 tablas_ac_b_h_ext = {}
-maqs_ac_b_h_ext = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
+maqs_ac_b_h_ext = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora', 'Komax C4']
 
 if 'df_lot_fal_agrupado' in globals() and df_lot_fal_agrupado is not None and len(df_lot_fal_agrupado) > 0:
     df_trabajo = df_lot_fal_agrupado.copy().reset_index(drop=True)
@@ -655,7 +655,8 @@ diccionarios_hojas = {
     "B": {k: v for k, v in tablas_ac_b_h_ext.items() if k.startswith('B')} if 'tablas_ac_b_h_ext' in globals() else {},
     "AC": {k: v for k, v in tablas_ac_b_h_ext.items() if k.startswith('AC')} if 'tablas_ac_b_h_ext' in globals() else {},
     "H1": {k: v for k, v in tablas_ac_b_h_ext.items() if k == 'H1'} if 'tablas_ac_b_h_ext' in globals() else {},
-    "Extrusora": {k: v for k, v in tablas_ac_b_h_ext.items() if k == 'Extrusora'} if 'tablas_ac_b_h_ext' in globals() else {}
+    "Extrusora": {k: v for k, v in tablas_ac_b_h_ext.items() if k == 'Extrusora'} if 'tablas_ac_b_h_ext' in globals() else {},
+    "Komax C4": {k: v for k, v in tablas_ac_b_h_ext.items() if k == 'Komax C4'}
 }
 
 for nombre_hoja_unica, tablas_dict in diccionarios_hojas.items():
@@ -698,7 +699,7 @@ dias_labels = {0: 'L', 1: 'M', 2: 'X', 3: 'J', 4: 'V'}
 nombres_cols_semana = [f"{d.day}/{d.month:02d} ({dias_labels.get(d.weekday(), '')})" for d in idx_semana_date]
 
 maquinas_inyectoras = ['INY 2', 'INY 3', 'INY 4', 'INY 5']
-maquinas_otras = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora']
+maquinas_otras = ['B 1', 'B 2', 'B 3', 'B 4', 'B 5', 'AC 1', 'AC 2', 'AC 3', 'AC 4', 'AC 7', 'AC 10', 'AC 11', 'H1', 'Extrusora','Komax C4']
 maquinas_orden_completo = maquinas_inyectoras + maquinas_otras
 
 def calcular_resumen_maquina(df_maq, maquina, fechas_idx):
